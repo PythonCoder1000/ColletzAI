@@ -2,57 +2,56 @@ import torch
 import sys
 from pathlib import Path
 
-# Add project root to path to allow imports
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.models import MLP, LSTM, HybridModel, TransformerModel
 
-def loadModel(model_path="models/hybrid_model_latest.pth"):
-    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-    
-    # Use model_config if available (new format)
+
+def prompt_model_type():
+    valid_types = ['mlp', 'lstm', 'hybrid', 'transformer']
+    prompt = "Choose model type to test (mlp/lstm/hybrid/transformer) [mlp]: "
+    while True:
+        choice = input(prompt).strip().lower()
+        if not choice:
+            return 'mlp'
+        if choice in valid_types:
+            return choice
+        print(f"Invalid choice '{choice}'. Please choose from {', '.join(valid_types)}.")
+
+
+def model_default_path(model_type):
+    return Path("models") / model_type / f"{model_type}_model_latest.pth"
+
+def loadModel(model_path=None):
+    if model_path is None:
+        model_path = model_default_path('mlp')
+    checkpoint = torch.load(str(model_path), map_location='cpu', weights_only=False)
     if 'model_config' in checkpoint:
         config = checkpoint['model_config']
         model_type = config.get('type', 'hybrid')
-        
         if model_type == 'mlp':
-            model = MLP(input_dim=1, hidden_dims=config['hidden_dims'], 
-                       output_dim=2, dropout=config.get('dropout', 0.2))
+            model = MLP(input_dim=1, hidden_dims=config['hidden_dims'], output_dim=2, dropout=config.get('dropout', 0.2))
         elif model_type == 'lstm':
-            model = LSTM(input_dim=1, hidden_dim=config['hidden_dim'], 
-                        num_layers=config['num_layers'], output_dim=2, 
-                        dropout=config.get('dropout', 0.2),
-                        bidirectional=config.get('bidirectional', False))
+            model = LSTM(input_dim=1, hidden_dim=config['hidden_dim'], num_layers=config['num_layers'], output_dim=2, dropout=config.get('dropout', 0.2), bidirectional=config.get('bidirectional', False))
         elif model_type == 'hybrid':
-            model = HybridModel(input_dim=1, mlp_hidden_dims=config['mlp_hidden_dims'],
-                               lstm_hidden_dim=config['lstm_hidden_dim'],
-                               num_layers=config['num_layers'], output_dim=2,
-                               dropout=config.get('dropout', 0.2))
+            model = HybridModel(input_dim=1, mlp_hidden_dims=config['mlp_hidden_dims'], lstm_hidden_dim=config['lstm_hidden_dim'], num_layers=config['num_layers'], output_dim=2, dropout=config.get('dropout', 0.2))
         elif model_type == 'transformer':
-            model = TransformerModel(input_dim=1, d_model=config['d_model'],
-                                    nhead=config['nhead'], num_layers=config['num_layers'],
-                                    output_dim=2, dropout=config.get('dropout', 0.2))
+            model = TransformerModel(input_dim=1, d_model=config['d_model'], nhead=config['nhead'], num_layers=config['num_layers'], output_dim=2, dropout=config.get('dropout', 0.2))
         else:
             raise ValueError(f"Unknown model type: {model_type}")
     else:
-        # Backward compatibility with old checkpoints
         if 'hidden_dim' in checkpoint:
             hidden_dim = checkpoint['hidden_dim']
             num_layers = checkpoint.get('num_layers', 2)
-            model = LSTM(input_dim=1, hidden_dim=hidden_dim, num_layers=num_layers, 
-                        output_dim=2, dropout=0.2)
+            model = LSTM(input_dim=1, hidden_dim=hidden_dim, num_layers=num_layers, output_dim=2, dropout=0.2)
         elif 'hidden_dims' in checkpoint:
             hidden_dims = checkpoint['hidden_dims']
             model = MLP(input_dim=1, hidden_dims=hidden_dims, output_dim=2, dropout=0.2)
         else:
-            # Default to hybrid
-            model = HybridModel(input_dim=1, mlp_hidden_dims=[128, 256], 
-                               lstm_hidden_dim=128, num_layers=2, output_dim=2, dropout=0.2)
-    
+            model = HybridModel(input_dim=1, mlp_hidden_dims=[128, 256], lstm_hidden_dim=128, num_layers=2, output_dim=2, dropout=0.2)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
-    
     normalization_params = {
         'input_mean': checkpoint['input_mean'],
         'input_std': checkpoint['input_std'],
@@ -79,15 +78,14 @@ def predict(model, normalization_params, input_value):
     return int(round(pred_steps)), int(round(pred_max))
 
 
-def interactiveTest(model_path="models/hybrid_model_latest.pth"):
-    print("Loading model...")
+def interactiveTest():
+    model_type = prompt_model_type()
+    model_path = model_default_path(model_type)
+    print(f"Loading model from {model_path} ...")
     try:
-        # Load checkpoint to get info
-        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+        checkpoint = torch.load(str(model_path), map_location='cpu', weights_only=False)
         model, norm_params = loadModel(model_path)
         print("Model loaded successfully!\n")
-        
-        # Print model info if available
         if 'model_config' in checkpoint:
             print(f"Model type: {checkpoint['model_config'].get('type', 'unknown').upper()}")
             if 'best_val_loss' in checkpoint:
@@ -140,4 +138,3 @@ def batchTest(model, norm_params, input_values):
 
 if __name__ == "__main__":
     interactiveTest()
-

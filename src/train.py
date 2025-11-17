@@ -21,13 +21,24 @@ def mean_loss(total_loss, num_batches, stage):
     return total_loss / num_batches
 
 
-
 def resolve_device():
     if torch.cuda.is_available():
         return torch.device('cuda')
     if torch.backends.mps.is_available():
         return torch.device('mps')
     return torch.device('cpu')
+
+
+def prompt_model_type():
+    valid_types = ['mlp', 'lstm', 'hybrid', 'transformer']
+    prompt = "Choose model type (mlp/lstm/hybrid/transformer) [mlp]: "
+    while True:
+        selection = input(prompt).strip().lower()
+        if not selection:
+            return 'mlp'
+        if selection in valid_types:
+            return selection
+        print(f"Invalid choice '{selection}'. Please choose from {', '.join(valid_types)}.")
 
 
 def trainEpoch(model, dataloader, criterion, optimizer, device, max_grad_norm=1.0):
@@ -211,7 +222,6 @@ def main():
     val_split = 0.15
     test_split = 0.15
     dropout = 0.2
-    model_type = 'mlp'
     mlp_hidden_dims = [256, 512, 256, 128]
     lstm_hidden_dim = 128
     num_layers = 2
@@ -223,6 +233,7 @@ def main():
     weight_decay = 1e-5
     max_grad_norm = 1.0
     warmup_epochs = 5
+    model_type = prompt_model_type()
     
     device = resolve_device()
     print(f"Using device: {device}")
@@ -321,10 +332,10 @@ def main():
     printTestResults(inputs, predictions, actuals, num_samples=20)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_path = f"models/{model_type}_model_{timestamp}.pth"
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    
-    latest_path = f"models/{model_type}_model_latest.pth"
+    model_dir = Path("models") / model_type
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / f"{model_type}_model_{timestamp}.pth"
+    latest_path = model_dir / f"{model_type}_model_latest.pth"
     
     checkpoint = {
         'model_state_dict': model.state_dict(),
@@ -345,10 +356,10 @@ def main():
         'best_val_loss': min(val_losses) if val_losses else None,
     }
     
-    torch.save(checkpoint, model_path)
-    torch.save(checkpoint, latest_path)
+    torch.save(checkpoint, str(model_path))
+    torch.save(checkpoint, str(latest_path))
     
-    history_path = f"models/{model_type}_history_{timestamp}.json"
+    history_path = model_dir / f"{model_type}_history_{timestamp}.json"
     history = {
         'train_losses': train_losses,
         'val_losses': val_losses,
