@@ -195,7 +195,7 @@ def main():
     dropout = 0.2
     
     # Model selection: 'mlp', 'lstm', 'hybrid', 'transformer'
-    model_type = 'hybrid'
+    model_type = 'mlp'
     
     # Model hyperparameters
     mlp_hidden_dims = [256, 512, 256, 128]
