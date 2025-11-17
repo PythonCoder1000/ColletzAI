@@ -91,7 +91,7 @@ def trainModel(model, train_loader, val_loader, num_epochs=100, lr=0.001, patien
     
     scheduler_kind = scheduler_type.lower()
     if scheduler_kind == 'reduce_on_plateau':
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
     elif scheduler_kind == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
     elif scheduler_kind == 'step':
