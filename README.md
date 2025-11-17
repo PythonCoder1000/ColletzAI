@@ -30,8 +30,8 @@ A deep learning project that predicts the number of steps and maximum value reac
 
 1. Clone the repository:
 ```bash
-git clone <your-repo-url>
-cd "Christian Jin (During the washington trip)"
+git clone https://github.com/PythonCoder1000/ColletzAI.git
+cd ColletzAI
 ```
 
 2. Create and activate a virtual environment:
