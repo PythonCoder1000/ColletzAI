@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Model files (too large for git)
+models/*.pth
+models/*.pkl
+models/*.h5
+models/*.pt
+
+# Data files (optional - uncomment if you don't want to track data)
+# data/*.txt
+# data/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Training history JSON files (optional - uncomment if you don't want to track)
+# models/*_history_*.json
+
+# Temporary files
+*.tmp
+*.bak
+
