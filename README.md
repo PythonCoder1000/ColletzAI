@@ -1,6 +1,8 @@
-# Collatz Conjecture Neural Network Predictor
+# ColletzAI
 
 A deep learning project that predicts the number of steps and maximum value reached in the Collatz conjecture sequence using various neural network architectures.
+
+**Note**: This is an attempt to predict the Collatz Conjecture using AI models. The Collatz conjecture states that for any positive integer n, if n is even divide by 2, if n is odd multiply by 3 and add 1, the sequence will always eventually reach 1.
 
 ## Features
 
