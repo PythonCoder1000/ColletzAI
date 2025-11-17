@@ -9,11 +9,26 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-# Add project root to path to allow imports
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.models import CollatzDataset, MLP, LSTM, HybridModel, TransformerModel, EarlyStopping
+
+
+def mean_loss(total_loss, num_batches, stage):
+    if num_batches == 0:
+        raise RuntimeError(f"No batches processed during {stage}. Adjust your dataset split or batch size.")
+    return total_loss / num_batches
+
+
+
+def resolve_device():
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    if torch.backends.mps.is_available():
+        return torch.device('mps')
+    return torch.device('cpu')
+
 
 def trainEpoch(model, dataloader, criterion, optimizer, device, max_grad_norm=1.0):
     model.train()
@@ -24,12 +39,11 @@ def trainEpoch(model, dataloader, criterion, optimizer, device, max_grad_norm=1.
         inputs = inputs.to(device)
         targets = targets.to(device)
         
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         outputs = model(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
         
-        # Gradient clipping
         if max_grad_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         
@@ -38,7 +52,7 @@ def trainEpoch(model, dataloader, criterion, optimizer, device, max_grad_norm=1.
         total_loss += loss.item()
         num_batches += 1
     
-    return total_loss / num_batches
+    return mean_loss(total_loss, num_batches, "training")
 
 
 def validate(model, dataloader, criterion, device):
@@ -57,7 +71,7 @@ def validate(model, dataloader, criterion, device):
             total_loss += loss.item()
             num_batches += 1
     
-    return total_loss / num_batches
+    return mean_loss(total_loss, num_batches, "validation")
 
 
 def trainModel(model, train_loader, val_loader, num_epochs=100, lr=0.001, patience=10, 
@@ -65,28 +79,31 @@ def trainModel(model, train_loader, val_loader, num_epochs=100, lr=0.001, patien
                weight_decay=1e-5, max_grad_norm=1.0, warmup_epochs=0):
     criterion = torch.nn.MSELoss()
     
-    # Optimizer selection
-    if optimizer_type.lower() == 'adam':
+    optimizer_kind = optimizer_type.lower()
+    if optimizer_kind == 'adam':
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    elif optimizer_type.lower() == 'adamw':
+    elif optimizer_kind == 'adamw':
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    elif optimizer_type.lower() == 'sgd':
+    elif optimizer_kind == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
     else:
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
-    # Learning rate scheduler
-    if scheduler_type == 'reduce_on_plateau':
+    scheduler_kind = scheduler_type.lower()
+    if scheduler_kind == 'reduce_on_plateau':
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
-    elif scheduler_type == 'cosine':
+    elif scheduler_kind == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
-    elif scheduler_type == 'step':
+    elif scheduler_kind == 'step':
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
-    elif scheduler_type == 'warmup_cosine':
+    elif scheduler_kind == 'warmup_cosine':
+        effective_warmup = max(1, warmup_epochs)
+        decay_epochs = max(1, num_epochs - effective_warmup)
         def lr_lambda(epoch):
-            if epoch < warmup_epochs:
-                return (epoch + 1) / warmup_epochs
-            return 0.5 * (1 + np.cos(np.pi * (epoch - warmup_epochs) / (num_epochs - warmup_epochs)))
+            if epoch < effective_warmup:
+                return float(epoch + 1) / float(effective_warmup)
+            progress = min(max((epoch - effective_warmup) / decay_epochs, 0.0), 1.0)
+            return 0.5 * (1 + np.cos(np.pi * progress))
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     else:
         scheduler = None
@@ -106,9 +123,8 @@ def trainModel(model, train_loader, val_loader, num_epochs=100, lr=0.001, patien
         current_lr = optimizer.param_groups[0]['lr']
         learning_rates.append(current_lr)
         
-        # Update scheduler
         if scheduler is not None:
-            if scheduler_type == 'reduce_on_plateau':
+            if scheduler_kind == 'reduce_on_plateau':
                 scheduler.step(val_loss)
             else:
                 scheduler.step()
@@ -144,7 +160,6 @@ def testModel(model, test_loader, dataset, device='cuda'):
             denorm_inputs = (inputs.cpu().numpy() * dataset.input_std + dataset.input_mean).squeeze()
             
             for i in range(len(pred_steps)):
-                # Handle both 1D and 2D cases for denorm_inputs
                 if denorm_inputs.ndim == 1:
                     inputs_list.append(denorm_inputs[i])
                 else:
@@ -156,6 +171,9 @@ def testModel(model, test_loader, dataset, device='cuda'):
 
 
 def printTestResults(inputs, predictions, actuals, num_samples=10):
+    if not predictions:
+        print("\nNo test samples available.")
+        return
     print("\n" + "="*80)
     print("TEST RESULTS")
     print("="*80)
@@ -182,8 +200,8 @@ def printTestResults(inputs, predictions, actuals, num_samples=10):
     print("="*80)
 
 
+
 def main():
-    # Configuration
     data_file = "data/data.txt"
     batch_size = 64
     num_epochs = 150
@@ -193,55 +211,59 @@ def main():
     val_split = 0.15
     test_split = 0.15
     dropout = 0.2
-    
-    # Model selection: 'mlp', 'lstm', 'hybrid', 'transformer'
     model_type = 'mlp'
-    
-    # Model hyperparameters
     mlp_hidden_dims = [256, 512, 256, 128]
     lstm_hidden_dim = 128
     num_layers = 2
     transformer_d_model = 128
     transformer_nhead = 4
     transformer_num_layers = 3
-    
-    # Training hyperparameters
-    optimizer_type = 'adamw'  # 'adam', 'adamw', 'sgd'
-    scheduler_type = 'reduce_on_plateau'  # 'reduce_on_plateau', 'cosine', 'step', 'warmup_cosine'
+    optimizer_type = 'adamw'
+    scheduler_type = 'reduce_on_plateau'
     weight_decay = 1e-5
     max_grad_norm = 1.0
     warmup_epochs = 5
     
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-    elif torch.backends.mps.is_available():
-        device = torch.device('mps')
-    else:
-        device = torch.device('cpu')
+    device = resolve_device()
     print(f"Using device: {device}")
     
     print("Loading dataset...")
     full_dataset = CollatzDataset(data_file)
-    print(f"Total samples: {len(full_dataset)}")
+    total_samples = len(full_dataset)
+    if total_samples == 0:
+        raise ValueError("Dataset is empty.")
+    print(f"Total samples: {total_samples}")
     
-    train_size = int(train_split * len(full_dataset))
-    val_size = int(val_split * len(full_dataset))
-    test_size = len(full_dataset) - train_size - val_size
+    split_array = np.array([train_split, val_split, test_split], dtype=np.float64)
+    if np.any(split_array < 0):
+        raise ValueError("Split ratios must be non-negative.")
+    split_sum = split_array.sum()
+    if split_sum <= 0:
+        raise ValueError("Split ratios must sum to a positive value.")
+    split_array /= split_sum
+    lengths = (split_array * total_samples).astype(int)
+    remainder = total_samples - lengths.sum()
+    for i in range(remainder):
+        lengths[i % len(lengths)] += 1
+    train_size, val_size, test_size = lengths.tolist()
+    if train_size == 0 or val_size == 0:
+        raise ValueError("Not enough data to form non-empty train and validation sets with the provided splits.")
     
+    generator = torch.Generator().manual_seed(42)
     train_dataset, val_dataset, test_dataset = random_split(
         full_dataset, [train_size, val_size, test_size],
-        generator=torch.Generator().manual_seed(42)
+        generator=generator
     )
     
     print(f"Train samples: {len(train_dataset)}")
     print(f"Validation samples: {len(val_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    pin_memory = device.type == 'cuda'
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=pin_memory)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=pin_memory)
     
-    # Model creation
     print(f"\nCreating {model_type.upper()} model...")
     if model_type == 'mlp':
         model = MLP(input_dim=1, hidden_dims=mlp_hidden_dims, output_dim=2, dropout=dropout)
@@ -298,12 +320,10 @@ def main():
     inputs, predictions, actuals = testModel(model, test_loader, full_dataset, device)
     printTestResults(inputs, predictions, actuals, num_samples=20)
     
-    # Save model with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_path = f"models/{model_type}_model_{timestamp}.pth"
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     
-    # Also save as latest
     latest_path = f"models/{model_type}_model_latest.pth"
     
     checkpoint = {
@@ -328,7 +348,6 @@ def main():
     torch.save(checkpoint, model_path)
     torch.save(checkpoint, latest_path)
     
-    # Save training history as JSON
     history_path = f"models/{model_type}_history_{timestamp}.json"
     history = {
         'train_losses': train_losses,
@@ -349,10 +368,12 @@ def main():
     print(f"\nModel saved to {model_path}")
     print(f"Latest model saved to {latest_path}")
     print(f"Training history saved to {history_path}")
-    print(f"\nBest validation loss: {min(val_losses):.6f}")
-    print(f"Final validation loss: {val_losses[-1]:.6f}")
+    if val_losses:
+        print(f"\nBest validation loss: {min(val_losses):.6f}")
+        print(f"Final validation loss: {val_losses[-1]:.6f}")
+    else:
+        print("\nValidation losses unavailable.")
 
 
 if __name__ == "__main__":
     main()
-
