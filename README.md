@@ -91,11 +91,3 @@ python src/generate.py
 
 See `requirements.txt` for specific versions.
 
-## License
-
-[Add your license here]
-
-## Author
-
-[Your name]
-
